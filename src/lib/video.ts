@@ -91,7 +91,7 @@ const TRANSITIONS = [
 type Grade = { name: string; filter: string };
 
 /** Cinematic color-grade looks. Colour is chosen from the shot's own content. */
-const GRADES: Record<string, Grade> = {
+const GRADES: { [k: string]: Grade } & Record<"night"|"sunset"|"warm"|"cool"|"tense"|"rain"|"bright"|"dream", Grade> = {
   night: {
     name: "night",
     filter:
