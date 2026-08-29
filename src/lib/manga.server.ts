@@ -109,20 +109,24 @@ export async function buildCharacterBible(script: string): Promise<string> {
       ? script.slice(0, 12000) + "\n...\n" + script.slice(-12000)
       : script;
 
-  const out = await zaiChat([
-    {
-      role: "system",
-      content:
-        "You are a manga art director. Read the script (it may be Hinglish/Hindi) and list the recurring characters. " +
-        "For each, give ONE compact English line of fixed visual traits usable inside an image prompt: " +
-        "age, gender, hair, eyes, face, build, signature clothing. Max 6 characters. " +
-        "Output plain lines like: Henan: 17-year-old Indian boy, messy black hair, sharp dark eyes, thin build, faded grey school shirt. " +
-        "No headings, no numbering, no extra commentary.",
-    },
-    { role: "user", content: sample },
-  ]);
+  const out = await zaiChat(
+    [
+      {
+        role: "system",
+        content:
+          "You are a manga art director. Read the script (it may be Hinglish/Hindi) and list the recurring characters. " +
+          "For each, give ONE compact English line of fixed visual traits usable inside an image prompt: " +
+          "age, gender, hair, eyes, face, build, signature clothing. Max 6 characters. " +
+          "Output plain lines like: Henan: 17-year-old Indian boy, messy black hair, sharp dark eyes, thin build, faded grey school shirt. " +
+          "No headings, no numbering, no extra commentary. Do not deliberate — answer immediately.",
+      },
+      { role: "user", content: sample },
+    ],
+    { maxTokens: 2500, timeoutMs: 120_000 },
+  );
   return stripFences(out).slice(0, 2000);
 }
+
 
 /** Writes one image prompt per segment, in batches. */
 export async function writePrompts(
