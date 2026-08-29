@@ -151,6 +151,7 @@ export async function writePrompts(
           "- Exactly one scene, one moment, one instance of each character. Never ask for multiple panels, insets, collages or side-by-side views.\n" +
           "- Always full colour. Never describe the image as black and white, monochrome, greyscale or screentone.\n- No text, letters, captions or speech bubbles in the image.\n" +
           "- 35 to 60 words each. English only.\n" +
+          "- Do not deliberate or explain. Output the JSON array immediately.\n" +
           'Return ONLY a JSON array of strings, one per numbered line, in order.',
       },
       {
@@ -158,8 +159,14 @@ export async function writePrompts(
         content: `CHARACTER BIBLE:\n${bible}\n\nSCRIPT LINES:\n${numbered}\n\nReturn a JSON array with exactly ${segments.length} prompt strings.`,
       },
     ],
-    { temperature: 0.7 },
+    {
+      temperature: 0.7,
+      maxTokens: 1200 + segments.length * 400,
+      timeoutMs: 180_000,
+      attempts: 2,
+    },
   );
+
 
   let arr: unknown[] = [];
   try {
