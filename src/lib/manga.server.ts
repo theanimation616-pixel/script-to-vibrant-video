@@ -140,7 +140,9 @@ export async function writePrompts(
     .map((s, i) => `${i + 1}. [${s.start}s-${s.end}s] ${s.text}`)
     .join("\n");
 
-  const raw = await zaiChat(
+  let raw = "";
+  try {
+    raw = await zaiChat(
     [
       {
         role: "system",
