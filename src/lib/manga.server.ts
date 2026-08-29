@@ -1,10 +1,11 @@
 import type { Segment } from "./script";
 
-const ZAI_URL = "https://api.z.ai/api/paas/v4/chat/completions";
+const CHAT_URL = "https://paraloncloud.com/v1/chat/completions";
+const CHAT_MODEL = "qwen3.8-27b";
 const PIXAZO_URL = "https://gateway.pixazo.ai/flux-1-schnell/v1/getData";
 
 export const STYLE =
-  "black and white Japanese manga illustration, screentone shading, bold clean ink lines, dynamic cinematic composition, detailed backgrounds";
+  "vibrant full-color anime manga illustration, rich saturated colour palette, cel shading with soft gradients, expressive cinematic lighting and colour, bold clean ink lines, detailed painted backgrounds, high quality anime key visual";
 
 /**
  * Hard guards that stop the model from drawing a character reference sheet,
@@ -15,26 +16,26 @@ export const SINGLE_PANEL_GUARD =
   "no character reference sheet, no character lineup, no turnaround, no inset portrait, " +
   "no side panel, no split screen, no collage, no grid, no multiple panels, no borders, " +
   "no duplicated characters, no repeated figures, no extra copies of the same person, " +
-  "no text, no captions, no speech bubbles, no watermark, no logo";
+  "no text, no captions, no speech bubbles, no watermark, no logo, NOT black and white, no monochrome, no greyscale, no sepia, no screentone dots, no manga halftone, full colour";
 
 export async function zaiChat(
   messages: { role: string; content: string }[],
   opts: { temperature?: number; model?: string } = {},
 ): Promise<string> {
-  const key = process.env["ZAI_API_KEY"];
-  if (!key) throw new Error("Missing ZAI_API_KEY");
+  const key = process.env["PARALON_API_KEY"];
+  if (!key) throw new Error("Missing PARALON_API_KEY");
 
   let lastErr = "";
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
-      const res = await fetch(ZAI_URL, {
+      const res = await fetch(CHAT_URL, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${key}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: opts.model ?? "glm-4.6v-flash",
+          model: opts.model ?? CHAT_MODEL,
           temperature: opts.temperature ?? 0.6,
           messages,
         }),
@@ -55,7 +56,7 @@ export async function zaiChat(
     }
     await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
   }
-  throw new Error(`Z.ai request failed: ${lastErr}`);
+  throw new Error(`Text model request failed: ${lastErr}`);
 }
 
 function stripFences(s: string): string {
@@ -111,12 +112,12 @@ export async function writePrompts(
         content:
           "You write image prompts for a manga storyboard. Input: a character bible and numbered script lines " +
           "(Hindi/Hinglish). For EACH numbered line write ONE English image prompt describing a SINGLE cinematic " +
-          "moment from that line: who is in frame, their action and expression, the setting, the camera angle and lighting.\n" +
+          "moment from that line: who is in frame, their action and expression, the setting, the camera angle, and the LIGHTING + COLOUR palette (e.g. 'warm golden sunset light, amber and teal palette'). Each prompt is ONE meaningful visual beat: one shot, one moment.\n" +
           "RULES:\n" +
           "- Weave a character's fixed traits INLINE into the sentence (e.g. 'Henan, a thin 17-year-old boy with messy black hair, sits...'). " +
           "NEVER write a separate character description block, character sheet, reference, lineup, or 'plus portrait of'.\n" +
           "- Exactly one scene, one moment, one instance of each character. Never ask for multiple panels, insets, collages or side-by-side views.\n" +
-          "- No text, letters, captions or speech bubbles in the image.\n" +
+          "- Always full colour. Never describe the image as black and white, monochrome, greyscale or screentone.\n- No text, letters, captions or speech bubbles in the image.\n" +
           "- 35 to 60 words each. English only.\n" +
           'Return ONLY a JSON array of strings, one per numbered line, in order.',
       },
