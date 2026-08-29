@@ -31,7 +31,7 @@ export async function zaiChat(
   const key = process.env["PARALON_API_KEY"];
   if (!key) throw new Error("Missing PARALON_API_KEY");
 
-  const attempts = opts.attempts ?? 2;
+  const attempts = opts.attempts ?? 3;
   let lastErr = "";
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
@@ -66,7 +66,10 @@ export async function zaiChat(
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e);
     }
-    if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, 600));
+    // 502/504 come from the provider's edge (HTML body), not the model:
+    // back off progressively instead of failing the whole batch.
+    if (attempt < attempts - 1)
+      await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
   }
   throw new Error(`Text model request failed: ${lastErr}`);
 }
@@ -137,7 +140,9 @@ export async function writePrompts(
     .map((s, i) => `${i + 1}. [${s.start}s-${s.end}s] ${s.text}`)
     .join("\n");
 
-  const raw = await zaiChat(
+  let raw = "";
+  try {
+    raw = await zaiChat(
     [
       {
         role: "system",
@@ -161,11 +166,18 @@ export async function writePrompts(
     ],
     {
       temperature: 0.7,
-      maxTokens: 1200 + segments.length * 400,
-      timeoutMs: 180_000,
-      attempts: 2,
+      maxTokens: 900 + segments.length * 300,
+      timeoutMs: 90_000,
+      attempts: 3,
     },
-  );
+    );
+  } catch (e) {
+    // Provider edge 502/504 or timeout: keep the storyboard going with
+    // per-segment fallback prompts instead of blanking the whole run.
+    console.error("writePrompts fell back:", e instanceof Error ? e.message : e);
+    raw = "";
+  }
+
 
 
   let arr: unknown[] = [];
