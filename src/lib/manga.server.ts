@@ -166,11 +166,18 @@ export async function writePrompts(
     ],
     {
       temperature: 0.7,
-      maxTokens: 1200 + segments.length * 400,
-      timeoutMs: 180_000,
-      attempts: 2,
+      maxTokens: 900 + segments.length * 300,
+      timeoutMs: 90_000,
+      attempts: 3,
     },
-  );
+    );
+  } catch (e) {
+    // Provider edge 502/504 or timeout: keep the storyboard going with
+    // per-segment fallback prompts instead of blanking the whole run.
+    console.error("writePrompts fell back:", e instanceof Error ? e.message : e);
+    raw = "";
+  }
+
 
 
   let arr: unknown[] = [];
