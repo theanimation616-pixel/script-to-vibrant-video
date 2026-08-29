@@ -154,6 +154,7 @@ export function sanitizePrompt(p: string): string {
       /\b(character (sheet|reference|design|lineup|turnaround|bible)|reference sheet|model sheet|inset portrait|split panel|multiple panels|panel grid|collage|side-by-side|two panels|comic page layout|storyboard grid)\b/gi,
       "",
     )
+    .replace(/\b(black[- ]and[- ]white|black ?& ?white|monochrome|monochromatic|gr[ae]yscale|sepia|screentone|halftone|ink wash only)\b/gi, "full colour")
     .replace(/\s{2,}/g, " ")
     .replace(/\s+([,.])/g, "$1")
     .trim();

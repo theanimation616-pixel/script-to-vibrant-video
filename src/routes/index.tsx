@@ -168,7 +168,7 @@ function Index() {
       const ready = shots
         .filter((s) => s.url)
         .sort((a, b) => a.start - b.start)
-        .map((s) => ({ url: s.url as string, start: s.start, end: s.end }));
+        .map((s) => ({ url: s.url as string, start: s.start, end: s.end, prompt: s.prompt }));
       const blob = await buildVideo(ready, (p, n) => {
         setVideoPct(p);
         setNote(n);
