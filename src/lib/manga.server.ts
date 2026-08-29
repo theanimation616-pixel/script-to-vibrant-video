@@ -20,16 +20,24 @@ export const SINGLE_PANEL_GUARD =
 
 export async function zaiChat(
   messages: { role: string; content: string }[],
-  opts: { temperature?: number; model?: string } = {},
+  opts: {
+    temperature?: number;
+    model?: string;
+    maxTokens?: number;
+    timeoutMs?: number;
+    attempts?: number;
+  } = {},
 ): Promise<string> {
   const key = process.env["PARALON_API_KEY"];
   if (!key) throw new Error("Missing PARALON_API_KEY");
 
+  const attempts = opts.attempts ?? 2;
   let lastErr = "";
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     try {
       const res = await fetch(CHAT_URL, {
         method: "POST",
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 150_000),
         headers: {
           Authorization: `Bearer ${key}`,
           "Content-Type": "application/json",
@@ -37,6 +45,9 @@ export async function zaiChat(
         body: JSON.stringify({
           model: opts.model ?? CHAT_MODEL,
           temperature: opts.temperature ?? 0.6,
+          // This model always "thinks" first; the budget must cover the hidden
+          // reasoning tokens or the answer comes back empty.
+          max_tokens: opts.maxTokens ?? 4000,
           messages,
         }),
       });
@@ -45,19 +56,36 @@ export async function zaiChat(
         if (res.status === 400 || res.status === 401 || res.status === 403) break;
       } else {
         const json = (await res.json()) as {
-          choices?: { message?: { content?: string } }[];
+          choices?: { message?: { content?: string; reasoning?: string } }[];
         };
-        const text = json.choices?.[0]?.message?.content?.trim();
+        const msg = json.choices?.[0]?.message;
+        const text = msg?.content?.trim() || extractFromReasoning(msg?.reasoning);
         if (text) return text;
         lastErr = "empty completion";
       }
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e);
     }
-    await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+    if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, 600));
   }
   throw new Error(`Text model request failed: ${lastErr}`);
 }
+
+/** Last-resort salvage: pull a JSON array out of truncated reasoning text. */
+function extractFromReasoning(reasoning?: string): string | null {
+  if (!reasoning) return null;
+  const start = reasoning.indexOf("[");
+  const end = reasoning.lastIndexOf("]");
+  if (start === -1 || end <= start) return null;
+  const slice = reasoning.slice(start, end + 1);
+  try {
+    const parsed = JSON.parse(slice) as unknown;
+    return Array.isArray(parsed) ? slice : null;
+  } catch {
+    return null;
+  }
+}
+
 
 function stripFences(s: string): string {
   return s
@@ -81,20 +109,24 @@ export async function buildCharacterBible(script: string): Promise<string> {
       ? script.slice(0, 12000) + "\n...\n" + script.slice(-12000)
       : script;
 
-  const out = await zaiChat([
-    {
-      role: "system",
-      content:
-        "You are a manga art director. Read the script (it may be Hinglish/Hindi) and list the recurring characters. " +
-        "For each, give ONE compact English line of fixed visual traits usable inside an image prompt: " +
-        "age, gender, hair, eyes, face, build, signature clothing. Max 6 characters. " +
-        "Output plain lines like: Henan: 17-year-old Indian boy, messy black hair, sharp dark eyes, thin build, faded grey school shirt. " +
-        "No headings, no numbering, no extra commentary.",
-    },
-    { role: "user", content: sample },
-  ]);
+  const out = await zaiChat(
+    [
+      {
+        role: "system",
+        content:
+          "You are a manga art director. Read the script (it may be Hinglish/Hindi) and list the recurring characters. " +
+          "For each, give ONE compact English line of fixed visual traits usable inside an image prompt: " +
+          "age, gender, hair, eyes, face, build, signature clothing. Max 6 characters. " +
+          "Output plain lines like: Henan: 17-year-old Indian boy, messy black hair, sharp dark eyes, thin build, faded grey school shirt. " +
+          "No headings, no numbering, no extra commentary. Do not deliberate — answer immediately.",
+      },
+      { role: "user", content: sample },
+    ],
+    { maxTokens: 2500, timeoutMs: 120_000 },
+  );
   return stripFences(out).slice(0, 2000);
 }
+
 
 /** Writes one image prompt per segment, in batches. */
 export async function writePrompts(
@@ -119,6 +151,7 @@ export async function writePrompts(
           "- Exactly one scene, one moment, one instance of each character. Never ask for multiple panels, insets, collages or side-by-side views.\n" +
           "- Always full colour. Never describe the image as black and white, monochrome, greyscale or screentone.\n- No text, letters, captions or speech bubbles in the image.\n" +
           "- 35 to 60 words each. English only.\n" +
+          "- Do not deliberate or explain. Output the JSON array immediately.\n" +
           'Return ONLY a JSON array of strings, one per numbered line, in order.',
       },
       {
@@ -126,8 +159,14 @@ export async function writePrompts(
         content: `CHARACTER BIBLE:\n${bible}\n\nSCRIPT LINES:\n${numbered}\n\nReturn a JSON array with exactly ${segments.length} prompt strings.`,
       },
     ],
-    { temperature: 0.7 },
+    {
+      temperature: 0.7,
+      maxTokens: 1200 + segments.length * 400,
+      timeoutMs: 180_000,
+      attempts: 2,
+    },
   );
+
 
   let arr: unknown[] = [];
   try {

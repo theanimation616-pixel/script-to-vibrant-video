@@ -90,48 +90,61 @@ function Index() {
       let list: Shot[] = segments.map((s) => ({ ...s, status: "waiting" as const }));
       setShots(list);
 
-      // 1. prompts, in batches (handles very long scripts)
-      const BATCH = 8;
+      // Prompts + drawing run together: each small batch starts drawing as
+      // soon as its prompts arrive, so nothing waits on the whole script.
+      const BATCH = 3;
       const batches: Segment[][] = [];
       for (let i = 0; i < segments.length; i += BATCH) batches.push(segments.slice(i, i + BATCH));
 
-      let batchDone = 0;
-      await pool(batches, 2, async (batch) => {
+      let promptDone = 0;
+      let drawn = 0;
+      const tick = () =>
+        setNote(
+          `Prompts ${promptDone}/${segments.length} · panels ${drawn}/${segments.length}`,
+        );
+      tick();
+
+      await pool(batches, 4, async (batch) => {
         batch.forEach((s) => patch(s.index, { status: "prompting" }));
+        let prompts: string[] = [];
         try {
-          const { prompts } = await getPrompts({ data: { bible: b, segments: batch } });
-          batch.forEach((s, i) => patch(s.index, { prompt: prompts[i] as string }));
-          list = list.map((s) => {
-            const at = batch.findIndex((x) => x.index === s.index);
-            return at === -1 ? s : { ...s, prompt: prompts[at] as string };
-          });
+          const res = await getPrompts({ data: { bible: b, segments: batch } });
+          prompts = res.prompts as string[];
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           batch.forEach((s) => patch(s.index, { status: "error", error: msg }));
+          promptDone += batch.length;
+          tick();
+          return;
         }
-        batchDone++;
-        setNote(`Writing prompts… ${Math.min(batchDone * BATCH, segments.length)}/${segments.length}`);
+        promptDone += batch.length;
+        tick();
+
+        await Promise.all(
+          batch.map(async (s, i) => {
+            const prompt = prompts[i];
+            if (!prompt) {
+              patch(s.index, { status: "error", error: "no prompt" });
+              return;
+            }
+            patch(s.index, { prompt, status: "drawing" });
+            try {
+              const { url } = await draw({ data: { prompt, seed: 1000 + s.index } });
+              patch(s.index, { url, status: "done" });
+              list = list.map((x) => (x.index === s.index ? { ...x, prompt, url, status: "done" as const } : x));
+            } catch (e) {
+              patch(s.index, {
+                status: "error",
+                prompt,
+                error: e instanceof Error ? e.message : String(e),
+              });
+            }
+            drawn++;
+            tick();
+          }),
+        );
       });
 
-      // 2. images, in sequence-safe parallel pool
-      let drawn = 0;
-      await pool(list, 3, async (shot) => {
-        const prompt = shot.prompt;
-        if (!prompt) return;
-        patch(shot.index, { status: "drawing" });
-        try {
-          const { url } = await draw({ data: { prompt, seed: 1000 + shot.index } });
-          patch(shot.index, { url, status: "done" });
-          list = list.map((s) => (s.index === shot.index ? { ...s, url, status: "done" } : s));
-        } catch (e) {
-          patch(shot.index, {
-            status: "error",
-            error: e instanceof Error ? e.message : String(e),
-          });
-        }
-        drawn++;
-        setNote(`Drawing panels… ${drawn}/${list.length}`);
-      });
 
       setPhase("done");
       setNote("All panels generated.");
